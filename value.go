@@ -1,7 +1,10 @@
 package worm
 
 import (
+	"bytes"
+	"encoding/gob"
 	"errors"
+	"io"
 	"log"
 	"reflect"
 )
@@ -26,6 +29,30 @@ type Value struct {
 }
 
 var NilValue = Value{Kind: Nil, Data: nil}
+
+func (v *Value) Encode(w io.Writer) error {
+	return gob.NewEncoder(w).Encode(v)
+}
+
+func (v *Value) EncodeBytes() ([]byte, error) {
+	b := []byte{}
+	buf := bytes.NewBuffer(b)
+	if err := v.Encode(buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func Decode(r io.Reader) (*Value, error) {
+	value := &NilValue
+	err := gob.NewDecoder(r).Decode(value)
+	return value, err
+}
+
+func DecodeBytes(b []byte) (*Value, error) {
+	buf := bytes.NewBuffer(b)
+	return Decode(buf)
+}
 
 func NewValue(kind Kind, data interface{}) *Value {
 	return &Value{

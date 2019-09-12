@@ -6,14 +6,63 @@ import (
 	"crypto/tls"
 	"net"
 	"strings"
+
+	"github.com/akrylysov/pogreb"
 )
+
+type Command interface {
+	Exec(*DB, *Client, []*Value) error
+}
 
 type Server struct {
 	Addr      string
 	Mode      string
-	Commands  map[string]func(*Client, []*Value) error
+	Context   interface{}
+	Commands  map[string]Command
 	tlsConfig *tls.Config
 	s         net.Listener
+	DB        DB
+	Closed    bool
+}
+
+// TODO: make DB an interface
+type DB struct {
+	Store *pogreb.DB
+}
+
+func (db *DB) Put(key string, value *Value) error {
+	v, err := value.EncodeBytes()
+	if err != nil {
+		return err
+	}
+
+	return db.Store.Put([]byte(key), v)
+}
+
+func (db *DB) Get(key string) (*Value, error) {
+	v, err := db.Store.Get([]byte(key))
+	if err != nil {
+		return nil, err
+	}
+
+	if v == nil {
+		return &NilValue, nil
+	}
+
+	vx, err := DecodeBytes(v)
+	if err != nil {
+		return nil, err
+	}
+
+	return vx, nil
+}
+
+func (db *DB) Delete(key string) error {
+	return db.Store.Delete([]byte(key))
+}
+
+func (db *DB) Close() error {
+	return db.Store.Close()
 }
 
 func LoadX509KeyPair(certFile, keyFile string) (*tls.Config, error) {
@@ -28,9 +77,23 @@ func LoadX509KeyPair(certFile, keyFile string) (*tls.Config, error) {
 	}, nil
 }
 
+func (s *Server) Close() error {
+	if err := s.DB.Close(); err != nil {
+		return err
+	}
+	return s.s.Close()
+}
+
 func newServerWithMode(mode, addr string, tlsConfig *tls.Config) (*Server, error) {
 	var s net.Listener
 	var err error
+
+	db, err := pogreb.Open("./db", &pogreb.Options{
+		BackgroundSyncInterval: -1,
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	if tlsConfig != nil {
 		s, err = tls.Listen(mode, addr, tlsConfig)
@@ -46,7 +109,8 @@ func newServerWithMode(mode, addr string, tlsConfig *tls.Config) (*Server, error
 		Addr:      addr,
 		Mode:      mode,
 		s:         s,
-		Commands:  map[string]func(*Client, []*Value) error{},
+		Commands:  map[string]Command{},
+		DB:        DB{Store: db},
 	}, nil
 }
 
@@ -93,10 +157,11 @@ func (s *Server) handleClient(client Client) {
 			continue
 		}
 
-		if err = f(&client, args); err != nil {
+		if err = f.Exec(&s.DB, &client, args); err != nil {
 			client.WriteValue(NewError(err.Error()))
 		}
 
+		s.DB.Store.Sync()
 		client.Output.Flush()
 	}
 }

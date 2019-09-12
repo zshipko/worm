@@ -12,7 +12,8 @@ import (
 )
 
 var (
-	ErrInvalidType = errors.New("Invalid type")
+	ErrInvalidType        = errors.New("Invalid type")
+	ErrNotEnoughArguments = errors.New("Not enough arguments")
 )
 
 type Client struct {
@@ -241,6 +242,8 @@ func (c *Client) Read() (*Message, error) {
 		if err != nil {
 			return nil, err
 		}
+	case 0:
+		return nil, io.EOF
 	default:
 		log.Println("INVALID VALUE TYPE", ch)
 		return nil, ErrInvalidType
