@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/rand"
 	"crypto/tls"
+	"fmt"
 	"net"
 	"reflect"
 	"strings"
@@ -21,6 +22,7 @@ type Server struct {
 	tlsConfig *tls.Config
 	s         net.Listener
 	Closed    bool
+	Users     map[string]string
 }
 
 func LoadX509KeyPair(certFile, keyFile string) (*tls.Config, error) {
@@ -102,6 +104,7 @@ func newServerWithMode(mode, addr string, tlsConfig *tls.Config, ctx interface{}
 		s:         s,
 		Context:   ctx,
 		Commands:  extractCommands(ctx),
+		Users:     map[string]string{},
 	}, nil
 }
 
@@ -129,6 +132,18 @@ func (server *Server) Run() error {
 	}
 }
 
+func (s *Server) CheckUser(user *User) bool {
+	if len(s.Users) == 0 {
+		return true
+	}
+
+	if user == nil {
+		return false
+	}
+
+	return s.Users[user.Name] == user.Password
+}
+
 func (s *Server) handleClient(client Client) {
 	defer client.Close()
 
@@ -142,9 +157,29 @@ func (s *Server) handleClient(client Client) {
 		cmd := strings.ToLower(args[0].ToString())
 
 		if cmd == "hello" {
+			if len(args) == 1 {
+				client.WriteValue(NewError("malformed HELLO command"))
+				client.Output.Flush()
+				return
+			}
+
 			if args[1].ToString() != "3" {
 				client.WriteValue(NewValue(Error, "NOPROTO this protocol is not supported"))
+				client.Output.Flush()
 				return
+			}
+
+			if len(args) >= 4 {
+				client.User = &User{
+					Name:     args[2].ToString(),
+					Password: args[3].ToString(),
+				}
+
+				if !s.CheckUser(client.User) {
+					client.WriteValue(NewError("auth failed"))
+					client.Output.Flush()
+					return
+				}
 			}
 
 			client.WriteValue(NewMap(map[string]*Value{
@@ -152,18 +187,51 @@ func (s *Server) handleClient(client Client) {
 				"version": NewInt(Version),
 				"proto":   NewInt(3),
 			}))
-			continue
-		}
+		} else if cmd == "auth" {
+			if len(args) == 1 {
+				client.WriteValue(NewError("not enough arguments"))
+			} else if len(args) == 2 {
+				client.User = &User{
+					Name:     "default",
+					Password: args[1].ToString(),
+				}
+			} else if len(args) == 3 {
+				client.User = &User{
+					Name:     args[1].ToString(),
+					Password: args[2].ToString(),
+				}
+			}
 
-		f, ok := s.Commands[cmd]
-		if !ok {
-			client.WriteValue(NewError("Invalid command"))
-			client.Output.Flush()
-			continue
-		}
+			if !s.CheckUser(client.User) {
+				client.WriteValue(NewError("auth failed"))
+				client.Output.Flush()
+				return
+			}
 
-		if err = f(&client, args); err != nil {
-			client.WriteValue(NewError(err.Error()))
+			client.WriteOK()
+		} else if cmd == "command" {
+			if !s.CheckUser(client.User) {
+				client.WriteValue(NewError("auth failed"))
+				client.Output.Flush()
+				return
+			}
+
+			arr := []*Value{}
+
+			for k, _ := range s.Commands {
+				arr = append(arr, New(k))
+			}
+
+			client.WriteValue(New(arr))
+		} else {
+			f, ok := s.Commands[cmd]
+			if !ok {
+				client.WriteValue(NewError("invalid command"))
+			} else {
+				if err = f(&client, args); err != nil {
+					client.WriteValue(NewError(err.Error()))
+				}
+			}
 		}
 
 		client.Output.Flush()

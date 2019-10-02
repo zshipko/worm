@@ -257,34 +257,10 @@ func (c *Client) Read() (*Message, error) {
 		if err != nil {
 			return nil, err
 		}
-	case 'h':
-		fallthrough
-	case 'H':
-		_, err := c.Input.ReadString(' ')
-		if err != nil {
-			return nil, err
-		}
-
-		line, err := c.readLine()
-		if err != nil {
-			return nil, err
-		}
-
-		parts := strings.Split(line, " ")
-		if len(parts) >= 4 && strings.ToLower(parts[1]) == "auth" {
-			message.User = &User{
-				Name:     parts[2],
-				Password: parts[3],
-			}
-		}
-
-		message.Version = version
-		message.Kind = Hello
-		message.Type = parts[0]
 	case 0:
 		return nil, io.EOF
 	default:
-		log.Println("INVALID VALUE TYPE", ch)
+		log.Println("Invalid message type:", ch)
 		return nil, ErrInvalidType
 	}
 
@@ -304,6 +280,16 @@ func (c *Client) writeCRLF() error {
 	return err
 }
 
+func (c *Client) WriteArrayHeader(n int) error {
+	_, err := c.Output.Write([]byte(fmt.Sprintf("*%d\r\n", n)))
+	return err
+}
+
+func (c *Client) WriteMapHeader(n int) error {
+	_, err := c.Output.Write([]byte(fmt.Sprintf("%%%d\r\n", n)))
+	return err
+}
+
 func (c *Client) Write(message *Message) error {
 	if message == nil {
 		return nil
@@ -314,12 +300,21 @@ func (c *Client) Write(message *Message) error {
 		c.WriteValue(message.Value)
 	case Hello:
 		if message.User != nil {
-			f := fmt.Sprintf("HELLO 3 AUTH %s %s\r\n", message.User.Name, message.User.Password)
-			_, err := c.Output.Write([]byte(f))
+			c.WriteArrayHeader(5)
 		} else {
-			_, err := c.Output.Write([]byte("HELLO 3\r\n"))
+			c.WriteArrayHeader(2)
 		}
-		return err
+
+		c.WriteValue(NewString("HELLO"))
+		c.WriteValue(NewString("3"))
+
+		if message.User != nil {
+			c.WriteValue(NewString("AUTH"))
+			c.WriteValue(NewString(message.User.Name))
+			return c.WriteValue(NewString(message.User.Password))
+		}
+
+		return nil
 	case SetReply:
 		a := message.Value.ToArray()
 		_, err := c.Output.WriteString(fmt.Sprint("~", len(a), "\r\n"))
