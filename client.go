@@ -285,6 +285,28 @@ func (c *Client) Read() (*Message, error) {
 		if err != nil {
 			return nil, err
 		}
+	case 'p':
+		fallthrough
+	case 'P':
+		line, err := c.readLine()
+		if err != nil {
+			return nil, err
+		}
+
+		parts := strings.Split(line, " ")
+
+		if strings.ToLower(parts[0]) != "ing" {
+			return nil, ErrInvalidType
+		}
+
+		if len(parts) == 1 {
+			parts = append(parts, "PONG")
+		}
+
+		message.Value = NewArray([]*Value{
+			NewString("PING"),
+			NewString(parts[1]),
+		})
 	case 0:
 		return nil, io.EOF
 	default:
