@@ -23,3 +23,16 @@ func (c *MyCommands) SomethingElse(i int) int {
 
 In the example above, `MyCommands` exports a single `worm` command named `Example`. `SomethingElse`
 isn't converted to a command because it has incompatible arguments and return type.
+
+Once you have written all your commands, you can easily create a new server:
+
+```go
+ctx := MyCommands {}
+server, err := worm.NewTCPServer("127.0.0.1:8081", nil, &ctx)
+```
+
+And run it:
+
+```go
+server.Run()
+```

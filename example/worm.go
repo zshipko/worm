@@ -76,7 +76,7 @@ func main() {
 		db: map[string]*worm.Value{},
 	}
 
-	server, err := worm.NewTCPServer(&ctx, "127.0.0.1:8081", nil)
+	server, err := worm.NewTCPServer("127.0.0.1:8081", nil, &ctx)
 	if err != nil {
 		log.Fatalln("Error attempting to start server:", err)
 	}

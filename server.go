@@ -4,11 +4,12 @@ import (
 	"bufio"
 	"crypto/rand"
 	"crypto/tls"
-	"fmt"
 	"net"
 	"reflect"
 	"strings"
 )
+
+const Version = 1
 
 type Command = func(*Client, []*Value) error
 
@@ -38,19 +39,7 @@ func (s *Server) Close() error {
 	return s.s.Close()
 }
 
-func newServerWithMode(ctx interface{}, mode, addr string, tlsConfig *tls.Config) (*Server, error) {
-	var s net.Listener
-	var err error
-
-	if tlsConfig != nil {
-		s, err = tls.Listen(mode, addr, tlsConfig)
-	} else {
-		s, err = net.Listen(mode, addr)
-	}
-	if err != nil {
-		return nil, err
-	}
-
+func extractCommands(ctx interface{}) map[string]Command {
 	commands := map[string]Command{}
 
 	typ := reflect.TypeOf(ctx)
@@ -64,23 +53,18 @@ func newServerWithMode(ctx interface{}, mode, addr string, tlsConfig *tls.Config
 
 		if method.Type.Out(0).Name() != "error" {
 			continue
-		}
-
-		if method.Type.NumIn() != 3 {
+		} else if method.Type.NumIn() != 3 {
+			continue
+		} else if !method.Type.In(1).ConvertibleTo(reflect.TypeOf(&Client{})) {
+			continue
+		} else if !method.Type.In(2).ConvertibleTo(reflect.TypeOf([]*Value{})) {
 			continue
 		}
 
-		if !method.Type.In(1).ConvertibleTo(reflect.TypeOf(&Client{})) {
-			continue
-		}
-
-		if !method.Type.In(2).ConvertibleTo(reflect.TypeOf([]*Value{})) {
-			continue
-		}
-
+		val := reflect.ValueOf(ctx)
 		commands[name] = func(client *Client, args []*Value) error {
 			r := method.Func.Call([]reflect.Value{
-				reflect.ValueOf(ctx),
+				val,
 				reflect.ValueOf(client),
 				reflect.ValueOf(args),
 			})[0].Interface()
@@ -95,18 +79,34 @@ func newServerWithMode(ctx interface{}, mode, addr string, tlsConfig *tls.Config
 		}
 	}
 
+	return commands
+}
+
+func newServerWithMode(mode, addr string, tlsConfig *tls.Config, ctx interface{}) (*Server, error) {
+	var s net.Listener
+	var err error
+
+	if tlsConfig != nil {
+		s, err = tls.Listen(mode, addr, tlsConfig)
+	} else {
+		s, err = net.Listen(mode, addr)
+	}
+	if err != nil {
+		return nil, err
+	}
+
 	return &Server{
 		tlsConfig: tlsConfig,
 		Addr:      addr,
 		Mode:      mode,
 		s:         s,
 		Context:   ctx,
-		Commands:  commands,
+		Commands:  extractCommands(ctx),
 	}, nil
 }
 
-func NewTCPServer(ctx interface{}, addr string, tlsConfig *tls.Config) (*Server, error) {
-	return newServerWithMode(ctx, "tcp", addr, tlsConfig)
+func NewTCPServer(addr string, tlsConfig *tls.Config, ctx interface{}) (*Server, error) {
+	return newServerWithMode("tcp", addr, tlsConfig, ctx)
 }
 
 func (server *Server) Run() error {
@@ -140,6 +140,20 @@ func (s *Server) handleClient(client Client) {
 
 		args := msg.Value.ToArray()
 		cmd := strings.ToLower(args[0].ToString())
+
+		if cmd == "hello" {
+			if args[1].ToString() != "3" {
+				client.WriteValue(NewValue(Error, "NOPROTO this protocol is not supported"))
+				return
+			}
+
+			client.WriteValue(NewMap(map[string]*Value{
+				"server":  NewString("merz"),
+				"version": NewInt(Version),
+				"proto":   NewInt(3),
+			}))
+			continue
+		}
 
 		f, ok := s.Commands[cmd]
 		if !ok {
