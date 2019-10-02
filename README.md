@@ -1,6 +1,12 @@
 # worm
 
-A Redis-protocol server framework for Go
+A RESP3 server framework for Go
+
+## Protocol
+
+`worm` implements the majority of the RESP3 protocol, however the following components are not yet implemented:
+- Streaming types
+- Attribute type
 
 ## Getting started
 

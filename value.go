@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"math/big"
 	"reflect"
 )
 
@@ -16,6 +17,7 @@ const (
 	Bool
 	Int64
 	Float64
+	BigInt
 	String
 	Bytes
 	Error
@@ -77,8 +79,16 @@ func NewFloat64(f float64) *Value {
 	return NewValue(Float64, f)
 }
 
+func NewBigInt(i *big.Int) *Value {
+	return NewValue(BigInt, i)
+}
+
 func NewString(s string) *Value {
 	return NewValue(String, s)
+}
+
+func NewErrorNoPrefix(s string) *Value {
+	return NewValue(Error, s)
 }
 
 func NewError(s string) *Value {
@@ -107,6 +117,8 @@ func New(value interface{}) *Value {
 		return New(*a)
 	case bool:
 		return NewBool(a)
+	case big.Int:
+		return NewBigInt(&a)
 	case int64:
 		return NewInt64(a)
 	case int:
@@ -217,6 +229,14 @@ func (v *Value) ToError() error {
 	}
 
 	return nil
+}
+
+func (v *Value) ToBigInt() *big.Int {
+	if v.Is(BigInt) {
+		return v.Data.(*big.Int)
+	}
+
+	return big.NewInt(0)
 }
 
 func (v *Value) ToInt64() int64 {

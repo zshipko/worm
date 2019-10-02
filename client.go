@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net"
 	"strconv"
 	"strings"
@@ -20,6 +21,7 @@ type Client struct {
 	conn   net.Conn
 	Input  *bufio.Reader
 	Output *bufio.Writer
+	User   *User
 }
 
 func (c *Client) Close() error {
@@ -206,6 +208,19 @@ func (c *Client) Read() (*Message, error) {
 			return nil, err
 		}
 		message.Value = NewFloat64(i)
+	case '(':
+		s, err := c.readLine()
+		if err != nil {
+			return nil, err
+		}
+
+		i := big.NewInt(0)
+		i, ok := i.SetString(s, 10)
+		if !ok {
+			return nil, errors.New("Invalid BigInt")
+		}
+
+		message.Value = NewBigInt(i)
 	case '#':
 		b, err := c.readLine()
 		if err != nil {
@@ -273,6 +288,9 @@ func (c *Client) Write(message *Message) error {
 	switch message.Kind {
 	case Default:
 		c.WriteValue(message.Value)
+	case Hello:
+		_, err := c.Output.Write([]byte("HELLO 3\r\n"))
+		return err
 	case SetReply:
 		a := message.Value.ToArray()
 		_, err := c.Output.WriteString(fmt.Sprint("~", len(a), "\r\n"))
@@ -288,7 +306,7 @@ func (c *Client) Write(message *Message) error {
 		}
 	case Push:
 		a := message.Value.ToArray()
-		_, err := c.Output.WriteString(fmt.Sprint("~", len(a)+1, "\r\n"))
+		_, err := c.Output.WriteString(fmt.Sprint(">", len(a)+1, "\r\n"))
 		if err != nil {
 			return err
 		}
@@ -327,10 +345,13 @@ func (c *Client) WriteValue(val *Value) error {
 		} else {
 			_, err = c.Output.WriteString("#f\r\n")
 		}
+
 	case Int64:
 		_, err = c.Output.WriteString(fmt.Sprint(":", val.ToInt64(), "\r\n"))
 	case Float64:
 		_, err = c.Output.WriteString(fmt.Sprint(",", val.ToFloat64(), "\r\n"))
+	case BigInt:
+		_, err = c.Output.WriteString(fmt.Sprint("(", val.ToBigInt(), "\r\n"))
 	case String:
 		s := val.ToString()
 		_, err = c.Output.WriteString(fmt.Sprint("$", len(s), "\r\n"))
@@ -414,4 +435,32 @@ func (c *Client) WriteSimpleString(s string) error {
 
 func (c *Client) WriteOK() error {
 	return c.WriteSimpleString("OK")
+}
+
+func (c *Client) Command(args ...string) (*Message, error) {
+	length := len(args)
+	for i := 0; i < length; i++ {
+		if err := c.WriteValue(NewString(args[i])); err != nil {
+			return nil, err
+		}
+	}
+
+	return c.Read()
+}
+
+func Connect(addr string) (*Client, error) {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+
+	r := bufio.NewReader(conn)
+	w := bufio.NewWriter(conn)
+
+	client := &Client{
+		Input:  r,
+		Output: w,
+		conn:   conn,
+	}
+	return client, err
 }

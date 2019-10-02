@@ -9,11 +9,17 @@ const (
 	Verbatim
 	SetReply
 	Push
-	//Hello
+	Hello
 )
+
+type User struct {
+	Name     string
+	Password string
+}
 
 type Message struct {
 	Kind  MessageKind
 	Type  string
 	Value *Value
+	User  *User
 }
