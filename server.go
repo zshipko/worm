@@ -196,6 +196,21 @@ func (s *Server) handleAuth(client *Client, args []*Value) {
 	client.WriteOK()
 }
 
+func (s *Server) listCommands(client *Client) {
+	if !s.CheckUser(client.User) {
+		client.WriteValue(NewError("auth failed"))
+		return
+	}
+
+	arr := []*Value{}
+
+	for k, _ := range s.Commands {
+		arr = append(arr, New(k))
+	}
+
+	client.WriteValue(New(arr))
+}
+
 func (s *Server) handleClient(client Client) {
 	defer client.Close()
 
@@ -213,19 +228,13 @@ func (s *Server) handleClient(client Client) {
 		} else if cmd == "auth" {
 			s.handleAuth(&client, args)
 		} else if cmd == "command" {
-			if !s.CheckUser(client.User) {
-				client.WriteValue(NewError("auth failed"))
-				client.Output.Flush()
-				return
+			s.listCommands(&client)
+		} else if cmd == "ping" {
+			if len(args) > 1 {
+				client.WriteValue(args[1])
+			} else {
+				client.WriteValue(New("PONG"))
 			}
-
-			arr := []*Value{}
-
-			for k, _ := range s.Commands {
-				arr = append(arr, New(k))
-			}
-
-			client.WriteValue(New(arr))
 		} else {
 			f, ok := s.Commands[cmd]
 			if !ok {

@@ -67,10 +67,13 @@ func (cmd *Context) Del(client *worm.Client, args []*worm.Value) error {
 }
 
 func main() {
-	// cert, err := LoadX509KeyPair("server.pem", "server.key")
-	// if err != nil {
-	// 	log.Fatalf("server: loadkeys: %s", err)
-	// }
+
+	// NOTE: uncomment, and pass `cert` to NewTCPServer to create
+	// and use a self-signed SSL certificate
+	//cert, err := worm.GenerateSelfSignedSSLCert("./worm")
+	//if err != nil {
+	//	log.Fatal("Unable to generate/load self-signed certs: ", err)
+	//}
 
 	ctx := Context{
 		db: map[string]*worm.Value{},
