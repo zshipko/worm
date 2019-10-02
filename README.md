@@ -19,8 +19,20 @@ type MyCommands struct {
   lock: sync.Mutex,
 }
 
-func (c *MyCommands) Example(client *worm.Client, args []*worm.Value) error {
-  return client.WriteOK()
+func (c *MyCommands) Example(client *worm.Client, args ...*worm.Value) error {
+  return client.WriteValue(NewArray(args))
+}
+
+func (c *MyCommands) Example2(client *worm.Client, arg1 *worm.Value, arg2 *worm.Value) error {
+  if err := client.WriteArrayHeader(2); err != nil {
+    return err
+  }
+
+  if err := client.WriteValue(arg1); err != nil {
+    return err
+  }
+
+  return client.WriteValue(arg2)
 }
 
 func (c *MyCommands) SomethingElse(i int) int {
@@ -28,8 +40,10 @@ func (c *MyCommands) SomethingElse(i int) int {
 }
 ```
 
-In the example above, `MyCommands` exports a single `worm` command named `Example`. `SomethingElse`
-isn't converted to a command because it has incompatible arguments and return type.
+In the example above, `MyCommands` exports two `worm` commands named `Example` and `Example2`. `SomethingElse`
+isn't converted to a command because it has incompatible arguments.
+
+A command must start with a `*worm.Client` argument and contain any number of `*worm.Value` arguments, including variadic arguments.
 
 Once you have written all your commands, you can easily create a new server:
 

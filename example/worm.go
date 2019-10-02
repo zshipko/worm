@@ -13,53 +13,42 @@ type Context struct {
 	db map[string]*worm.Value
 }
 
-func (cmd *Context) Get(client *worm.Client, args []*worm.Value) error {
+func (cmd *Context) Get(client *worm.Client, key *worm.Value) error {
 	lock.Lock()
 	defer lock.Unlock()
-
-	if len(args) < 2 {
-		return worm.ErrNotEnoughArguments
-	}
-
-	k := args[1].ToString()
-	return client.WriteValue(cmd.db[k])
+	return client.WriteValue(cmd.db[key.ToString()])
 }
 
 type cmdSet struct {
 	db map[string]*worm.Value
 }
 
-func (cmd *Context) Set(client *worm.Client, args []*worm.Value) error {
+func (cmd *Context) Set(client *worm.Client, key *worm.Value, value *worm.Value) error {
 	lock.Lock()
 	defer lock.Unlock()
-
-	if len(args) < 3 {
-		return worm.ErrNotEnoughArguments
-	}
-
-	k := args[1].ToString()
-	v := args[2]
-	cmd.db[k] = v
-
+	cmd.db[key.ToString()] = value
 	return client.WriteOK()
 }
 
-func (cmd *Context) Del(client *worm.Client, args []*worm.Value) error {
+func (cmd *Context) Del(client *worm.Client, keys ...*worm.Value) error {
 	lock.Lock()
 	defer lock.Unlock()
 
-	if len(args) < 2 {
+	if len(keys) == 0 {
 		return worm.ErrNotEnoughArguments
 	}
 
 	count := 0
 
-	for _, k := range args[1:] {
+	for _, k := range keys {
+		exists := cmd.db[k.ToString()] != nil
 		delete(cmd.db, k.ToString())
-		count += 1
+		if exists {
+			count += 1
+		}
 	}
 
-	if count == 1 && len(args) == 2 {
+	if count == 1 && len(keys) == 2 {
 		return client.WriteOK()
 	}
 

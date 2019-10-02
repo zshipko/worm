@@ -9,6 +9,7 @@ import (
 	"log"
 	"math/big"
 	"reflect"
+	"strconv"
 )
 
 type Kind int
@@ -270,14 +271,32 @@ func (v *Value) ToBigInt() *big.Int {
 func (v *Value) ToInt64() int64 {
 	if v.Is(Int64) {
 		return v.Data.(int64)
+	} else if v.Is(Float64) {
+		return int64(v.Data.(float64))
+	} else if v.Is(String) {
+		n, err := strconv.ParseInt(v.Data.(string), 10, 64)
+		if err == nil {
+			return n
+		}
 	}
 
 	return int64(0)
 }
 
+func (v *Value) ToInt() int {
+	return int(v.ToInt64())
+}
+
 func (v *Value) ToFloat64() float64 {
 	if v.Is(Float64) {
 		return v.Data.(float64)
+	} else if v.Is(Int64) {
+		return float64(v.Data.(int64))
+	} else if v.Is(String) {
+		n, err := strconv.ParseFloat(v.Data.(string), 64)
+		if err == nil {
+			return n
+		}
 	}
 
 	return float64(0)

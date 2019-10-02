@@ -13,15 +13,16 @@ import (
 )
 
 var (
-	ErrInvalidType        = errors.New("Invalid type")
-	ErrNotEnoughArguments = errors.New("Not enough arguments")
+	ErrInvalidType        = errors.New("invalid type")
+	ErrNotEnoughArguments = errors.New("not enough arguments")
 )
 
 type Client struct {
-	conn   net.Conn
-	Input  *bufio.Reader
-	Output *bufio.Writer
-	User   *User
+	Version string
+	conn    net.Conn
+	Input   *bufio.Reader
+	Output  *bufio.Writer
+	User    *User
 }
 
 func (c *Client) Close() error {
@@ -302,7 +303,7 @@ func (c *Client) ReadValue() (*Value, error) {
 	return msg.Value, nil
 }
 
-func (c *Client) writeCRLF() error {
+func (c *Client) WriteCRLF() error {
 	_, err := c.Output.WriteString("\r\n")
 	return err
 }
@@ -320,6 +321,10 @@ func (c *Client) WriteMapHeader(n int) error {
 func (c *Client) Write(message *Message) error {
 	if message == nil {
 		return nil
+	}
+
+	if c.Version == "2" {
+		return c.writeValueV2(message.Value)
 	}
 
 	switch message.Kind {
@@ -378,8 +383,91 @@ func (c *Client) Write(message *Message) error {
 	return nil
 }
 
+func (c *Client) writeValueV2(val *Value) error {
+	var err error
+
+	if val == nil {
+		_, err = c.Output.WriteString("$-1\r\n")
+		return err
+	}
+
+	switch val.Kind {
+	case Nil:
+		_, err = c.Output.WriteString("$-1\r\n")
+	case Bool:
+		b := val.ToBool()
+		err = c.writeValueV2(NewString(fmt.Sprint(b)))
+	case Int64:
+		_, err = c.Output.WriteString(fmt.Sprint(":", val.ToInt64(), "\r\n"))
+	case Float64:
+		err = c.writeValueV2(NewString(fmt.Sprint(val.ToFloat64())))
+	case BigInt:
+		err = c.writeValueV2(NewString(fmt.Sprint(val.ToBigInt())))
+	case String:
+		s := val.ToString()
+		err := c.WriteStringHeader(len(s))
+		if err != nil {
+			return err
+		}
+		if _, err = c.Output.WriteString(s); err != nil {
+			return err
+		}
+		err = c.WriteCRLF()
+	case Error:
+		s := val.ToError().Error()
+		_, err = c.Output.WriteString(fmt.Sprint("-", s, "\r\n"))
+	case Bytes:
+		s := val.ToBytes()
+		err := c.WriteStringHeader(len(s))
+		if err != nil {
+			return err
+		}
+		if _, err = c.Output.Write(s); err != nil {
+			return err
+		}
+		err = c.WriteCRLF()
+	case Array:
+		a := val.ToArray()
+		err := c.WriteArrayHeader(len(a))
+		if err != nil {
+			return err
+		}
+
+		for _, v := range a {
+			err = c.writeValueV2(v)
+			if err != nil {
+				return err
+			}
+		}
+	case Map:
+		a := val.ToMap()
+		err := c.WriteArrayHeader(len(a) * 2)
+		if err != nil {
+			return err
+		}
+
+		for k, v := range a {
+			err = c.writeValueV2(New(k))
+			if err != nil {
+				return err
+			}
+
+			err = c.writeValueV2(v)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return err
+}
+
 func (c *Client) WriteValue(val *Value) error {
 	var err error
+
+	if c.Version == "2" {
+		return c.writeValueV2(val)
+	}
 
 	if val == nil {
 		_, err = c.Output.WriteString("_\r\n")
@@ -396,7 +484,6 @@ func (c *Client) WriteValue(val *Value) error {
 		} else {
 			_, err = c.Output.WriteString("#f\r\n")
 		}
-
 	case Int64:
 		_, err = c.Output.WriteString(fmt.Sprint(":", val.ToInt64(), "\r\n"))
 	case Float64:
@@ -405,16 +492,14 @@ func (c *Client) WriteValue(val *Value) error {
 		_, err = c.Output.WriteString(fmt.Sprint("(", val.ToBigInt(), "\r\n"))
 	case String:
 		s := val.ToString()
-		_, err = c.Output.WriteString(fmt.Sprint("$", len(s), "\r\n"))
+		err := c.WriteStringHeader(len(s))
 		if err != nil {
 			return err
 		}
-
 		if _, err = c.Output.WriteString(s); err != nil {
 			return err
 		}
-
-		err = c.writeCRLF()
+		err = c.WriteCRLF()
 	case Error:
 		s := val.ToError().Error()
 		if strings.ContainsAny(s, "\r\n") {
@@ -427,7 +512,7 @@ func (c *Client) WriteValue(val *Value) error {
 				return err
 			}
 
-			err = c.writeCRLF()
+			err = c.WriteCRLF()
 		} else {
 			_, err = c.Output.WriteString(fmt.Sprint("-", s, "\r\n"))
 		}
@@ -442,10 +527,10 @@ func (c *Client) WriteValue(val *Value) error {
 			return err
 		}
 
-		err = c.writeCRLF()
+		err = c.WriteCRLF()
 	case Array:
 		a := val.ToArray()
-		_, err := c.Output.WriteString(fmt.Sprint("*", len(a), "\r\n"))
+		err := c.WriteArrayHeader(len(a))
 		if err != nil {
 			return err
 		}
@@ -458,7 +543,7 @@ func (c *Client) WriteValue(val *Value) error {
 		}
 	case Map:
 		d := val.ToMap()
-		_, err := c.Output.WriteString(fmt.Sprint("%", len(d), "\r\n"))
+		err := c.WriteMapHeader(len(d))
 		if err != nil {
 			return err
 		}
@@ -479,6 +564,11 @@ func (c *Client) WriteValue(val *Value) error {
 	return err
 }
 
+func (c *Client) WriteStringHeader(n int) error {
+	_, err := c.Output.WriteString(fmt.Sprint("$", n, "\r\n"))
+	return err
+}
+
 func (c *Client) WriteSimpleString(s string) error {
 	_, err := c.Output.WriteString(fmt.Sprint("+", s, "\r\n"))
 	return err
@@ -486,6 +576,10 @@ func (c *Client) WriteSimpleString(s string) error {
 
 func (c *Client) WriteOK() error {
 	return c.WriteSimpleString("OK")
+}
+
+func (c *Client) WriteError(msg string) error {
+	return c.WriteValue(NewError(msg))
 }
 
 func (c *Client) Command(args ...string) (*Message, error) {

@@ -4,12 +4,13 @@ import (
 	"bufio"
 	"crypto/rand"
 	"crypto/tls"
+	"fmt"
 	"net"
 	"reflect"
 	"strings"
 )
 
-const Version = 1
+const WormVersion = 1
 
 type Command = func(*Client, []*Value) error
 
@@ -44,6 +45,9 @@ func extractCommands(ctx interface{}) map[string]Command {
 	commands := map[string]Command{}
 
 	typ := reflect.TypeOf(ctx)
+	val := reflect.ValueOf(ctx)
+	clientType := reflect.TypeOf(&Client{})
+	valueType := reflect.TypeOf(&Value{})
 	for i := 0; i < typ.NumMethod(); i++ {
 		method := typ.Method(i)
 		name := strings.ToLower(method.Name)
@@ -54,33 +58,50 @@ func extractCommands(ctx interface{}) map[string]Command {
 
 		if method.Type.Out(0).Name() != "error" {
 			continue
-		} else if method.Type.NumIn() != 3 {
-			continue
-		} else if !method.Type.In(1).ConvertibleTo(reflect.TypeOf(&Client{})) {
-			continue
-		} else if !method.Type.In(2).ConvertibleTo(reflect.TypeOf([]*Value{})) {
-			continue
-		}
+		} else if method.Type.NumIn() >= 2 && method.Type.In(0) == typ && method.Type.In(1) == clientType {
+			variadic := method.Type.IsVariadic()
 
-		val := reflect.ValueOf(ctx)
-		commands[name] = func(client *Client, args []*Value) error {
-			r := method.Func.Call([]reflect.Value{
-				val,
-				reflect.ValueOf(client),
-				reflect.ValueOf(args),
-			})[0].Interface()
-			switch e := r.(type) {
-			case nil:
-				return nil
-			case error:
-				return e
-			default:
-				panic("Invalid return type")
+			ok := true
+			for i := 2; i < method.Type.NumIn(); i++ {
+				if method.Type.In(i) != valueType {
+					if i == method.Type.NumIn()-1 && variadic && method.Type.In(i).Elem() == valueType {
+						continue
+					}
+					ok = false
+					break
+				}
+			}
+			if !ok {
+				continue
+			}
+
+			commands[name] = func(client *Client, args []*Value) error {
+				if !variadic && len(args) != method.Type.NumIn()-2 {
+					return client.WriteError(fmt.Sprintf("invalid argument count, expected %d but got %d", method.Type.NumIn()-2, len(args)))
+				}
+				vargs := []reflect.Value{val}
+				vargs = append(vargs, reflect.ValueOf(client))
+				for _, arg := range args {
+					vargs = append(vargs, reflect.ValueOf(arg))
+				}
+				r := method.Func.Call(vargs)[0].Interface()
+				return fixReturnValue(r)
 			}
 		}
 	}
 
 	return commands
+}
+
+func fixReturnValue(r interface{}) error {
+	switch e := r.(type) {
+	case nil:
+		return nil
+	case error:
+		return e
+	default:
+		panic("Invalid return type")
+	}
 }
 
 func newServerWithMode(mode, addr string, tlsConfig *tls.Config, ctx interface{}) (*Server, error) {
@@ -122,9 +143,10 @@ func (server *Server) Run() error {
 		w := bufio.NewWriter(conn)
 
 		client := Client{
-			Input:  r,
-			Output: w,
-			conn:   conn,
+			Input:   r,
+			Output:  w,
+			conn:    conn,
+			Version: "2",
 		}
 
 		go server.handleClient(client)
@@ -144,20 +166,22 @@ func (s *Server) CheckUser(user *User) bool {
 }
 
 func (s *Server) handleHello(client *Client, args []*Value) {
-	if len(args) == 1 {
+	if len(args) == 0 {
 		client.WriteValue(NewError("malformed HELLO command"))
 		return
 	}
 
-	if args[1].ToString() != "3" {
+	client.Version = args[0].ToString()
+
+	if client.Version != "2" && client.Version != "3" {
 		client.WriteValue(NewValue(Error, "NOPROTO this protocol is not supported"))
 		return
 	}
 
-	if len(args) >= 4 {
+	if len(args) >= 3 {
 		client.User = &User{
-			Name:     args[2].ToString(),
-			Password: args[3].ToString(),
+			Name:     args[1].ToString(),
+			Password: args[2].ToString(),
 		}
 
 		if !s.CheckUser(client.User) {
@@ -168,23 +192,23 @@ func (s *Server) handleHello(client *Client, args []*Value) {
 
 	client.WriteValue(NewMap(map[string]*Value{
 		"server":  NewString("merz"),
-		"version": NewInt(Version),
+		"version": NewInt(WormVersion),
 		"proto":   NewInt(3),
 	}))
 }
 
 func (s *Server) handleAuth(client *Client, args []*Value) {
-	if len(args) == 1 {
-		client.WriteValue(NewError("not enough arguments"))
-	} else if len(args) == 2 {
+	if len(args) == 0 {
+		client.WriteValue(New(ErrNotEnoughArguments))
+	} else if len(args) == 1 {
 		client.User = &User{
 			Name:     "default",
-			Password: args[1].ToString(),
+			Password: args[0].ToString(),
 		}
-	} else if len(args) == 3 {
+	} else if len(args) == 2 {
 		client.User = &User{
-			Name:     args[1].ToString(),
-			Password: args[2].ToString(),
+			Name:     args[0].ToString(),
+			Password: args[1].ToString(),
 		}
 	}
 
@@ -221,28 +245,33 @@ func (s *Server) handleClient(client Client) {
 		}
 
 		args := msg.Value.ToArray()
-		cmd := strings.ToLower(args[0].ToString())
+		if len(args) == 0 {
+			return
+		}
 
-		if cmd == "hello" {
-			s.handleHello(&client, args)
-		} else if cmd == "auth" {
-			s.handleAuth(&client, args)
-		} else if cmd == "command" {
-			s.listCommands(&client)
-		} else if cmd == "ping" {
-			if len(args) > 1 {
-				client.WriteValue(args[1])
-			} else {
-				client.WriteValue(New("PONG"))
+		cmd := strings.ToLower(args[0].ToString())
+		args = args[1:]
+
+		f, ok := s.Commands[cmd]
+		if ok {
+			if err = f(&client, args); err != nil {
+				client.WriteValue(NewError(err.Error()))
 			}
 		} else {
-			f, ok := s.Commands[cmd]
-			if !ok {
-				client.WriteValue(NewError("invalid command"))
-			} else {
-				if err = f(&client, args); err != nil {
-					client.WriteValue(NewError(err.Error()))
+			if cmd == "hello" {
+				s.handleHello(&client, args)
+			} else if cmd == "auth" {
+				s.handleAuth(&client, args)
+			} else if cmd == "command" {
+				s.listCommands(&client)
+			} else if cmd == "ping" {
+				if len(args) > 0 {
+					client.WriteValue(args[0])
+				} else {
+					client.WriteValue(New("PONG"))
 				}
+			} else {
+				client.WriteValue(NewError("invalid command"))
 			}
 		}
 
