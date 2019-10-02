@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/gob"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"math/big"
@@ -189,6 +190,19 @@ func (v *Value) Is(kind Kind) bool {
 func (v *Value) ToMap() map[string]*Value {
 	if v.Is(Map) {
 		return v.Data.(map[string]*Value)
+	} else if v.Is(Array) {
+		arr := v.Data.([]*Value)
+		if len(arr)%2 != 0 {
+			return nil
+		}
+
+		dest := map[string]*Value{}
+
+		for i := 0; i < len(arr); i += 2 {
+			dest[arr[i].ToString()] = arr[i+1]
+		}
+
+		return dest
 	}
 
 	return nil
@@ -197,6 +211,14 @@ func (v *Value) ToMap() map[string]*Value {
 func (v *Value) ToArray() []*Value {
 	if v.Is(Array) {
 		return v.Data.([]*Value)
+	} else if v.Is(Map) {
+		dest := []*Value{}
+
+		for k, v := range v.Data.(map[string]*Value) {
+			dest = append(dest, NewString(k), v)
+		}
+
+		return dest
 	}
 
 	return nil
@@ -205,6 +227,8 @@ func (v *Value) ToArray() []*Value {
 func (v *Value) ToBytes() []byte {
 	if v.Is(Bytes) {
 		return v.Data.([]byte)
+	} else if v.Is(String) {
+		return []byte(v.Data.(string))
 	}
 
 	return nil
@@ -213,6 +237,8 @@ func (v *Value) ToBytes() []byte {
 func (v *Value) ToString() string {
 	if v.Is(String) {
 		return v.Data.(string)
+	} else if v.Is(Int64) || v.Is(Float64) || v.Is(BigInt) || v.Is(Bool) {
+		return fmt.Sprint(v.Data)
 	}
 
 	return ""
@@ -234,6 +260,8 @@ func (v *Value) ToError() error {
 func (v *Value) ToBigInt() *big.Int {
 	if v.Is(BigInt) {
 		return v.Data.(*big.Int)
+	} else if v.Is(Int64) {
+		return big.NewInt(v.Data.(int64))
 	}
 
 	return big.NewInt(0)
@@ -258,6 +286,8 @@ func (v *Value) ToFloat64() float64 {
 func (v *Value) ToBool() bool {
 	if v.Is(Bool) {
 		return v.Data.(bool)
+	} else if v.Is(Int64) {
+		return v.Data.(int64) != 0
 	}
 
 	return false

@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"crypto/rand"
 	"crypto/tls"
-	"fmt"
 	"net"
 	"reflect"
 	"strings"

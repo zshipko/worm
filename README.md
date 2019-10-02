@@ -7,6 +7,7 @@ A RESP3 server framework for Go
 `worm` implements the majority of the RESP3 protocol, however the following components are not yet implemented:
 - Streaming types
 - Attribute type
+- Non-string map keys
 
 ## Getting started
 
