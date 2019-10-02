@@ -143,6 +143,59 @@ func (s *Server) CheckUser(user *User) bool {
 	return s.Users[user.Name] == user.Password
 }
 
+func (s *Server) handleHello(client *Client, args []*Value) {
+	if len(args) == 1 {
+		client.WriteValue(NewError("malformed HELLO command"))
+		return
+	}
+
+	if args[1].ToString() != "3" {
+		client.WriteValue(NewValue(Error, "NOPROTO this protocol is not supported"))
+		return
+	}
+
+	if len(args) >= 4 {
+		client.User = &User{
+			Name:     args[2].ToString(),
+			Password: args[3].ToString(),
+		}
+
+		if !s.CheckUser(client.User) {
+			client.WriteValue(NewError("auth failed"))
+			return
+		}
+	}
+
+	client.WriteValue(NewMap(map[string]*Value{
+		"server":  NewString("merz"),
+		"version": NewInt(Version),
+		"proto":   NewInt(3),
+	}))
+}
+
+func (s *Server) handleAuth(client *Client, args []*Value) {
+	if len(args) == 1 {
+		client.WriteValue(NewError("not enough arguments"))
+	} else if len(args) == 2 {
+		client.User = &User{
+			Name:     "default",
+			Password: args[1].ToString(),
+		}
+	} else if len(args) == 3 {
+		client.User = &User{
+			Name:     args[1].ToString(),
+			Password: args[2].ToString(),
+		}
+	}
+
+	if !s.CheckUser(client.User) {
+		client.WriteValue(NewError("auth failed"))
+		return
+	}
+
+	client.WriteOK()
+}
+
 func (s *Server) handleClient(client Client) {
 	defer client.Close()
 
@@ -156,58 +209,9 @@ func (s *Server) handleClient(client Client) {
 		cmd := strings.ToLower(args[0].ToString())
 
 		if cmd == "hello" {
-			if len(args) == 1 {
-				client.WriteValue(NewError("malformed HELLO command"))
-				client.Output.Flush()
-				return
-			}
-
-			if args[1].ToString() != "3" {
-				client.WriteValue(NewValue(Error, "NOPROTO this protocol is not supported"))
-				client.Output.Flush()
-				return
-			}
-
-			if len(args) >= 4 {
-				client.User = &User{
-					Name:     args[2].ToString(),
-					Password: args[3].ToString(),
-				}
-
-				if !s.CheckUser(client.User) {
-					client.WriteValue(NewError("auth failed"))
-					client.Output.Flush()
-					return
-				}
-			}
-
-			client.WriteValue(NewMap(map[string]*Value{
-				"server":  NewString("merz"),
-				"version": NewInt(Version),
-				"proto":   NewInt(3),
-			}))
+			s.handleHello(&client, args)
 		} else if cmd == "auth" {
-			if len(args) == 1 {
-				client.WriteValue(NewError("not enough arguments"))
-			} else if len(args) == 2 {
-				client.User = &User{
-					Name:     "default",
-					Password: args[1].ToString(),
-				}
-			} else if len(args) == 3 {
-				client.User = &User{
-					Name:     args[1].ToString(),
-					Password: args[2].ToString(),
-				}
-			}
-
-			if !s.CheckUser(client.User) {
-				client.WriteValue(NewError("auth failed"))
-				client.Output.Flush()
-				return
-			}
-
-			client.WriteOK()
+			s.handleAuth(&client, args)
 		} else if cmd == "command" {
 			if !s.CheckUser(client.User) {
 				client.WriteValue(NewError("auth failed"))

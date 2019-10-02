@@ -142,6 +142,20 @@ func (c *Client) Read() (*Message, error) {
 		}
 		message.Value = &NilValue
 	case '$':
+		r, _, err := c.Input.ReadRune()
+		if err != nil {
+			return nil, err
+		}
+
+		// Streaming
+		if r == '?' {
+			return nil, errors.New("Streaming strings are not implemented")
+		}
+
+		if err := c.Input.UnreadRune(); err != nil {
+			return nil, err
+		}
+
 		message.Value, err = c.readBulkString()
 		if err != nil {
 			return nil, err
@@ -232,6 +246,19 @@ func (c *Client) Read() (*Message, error) {
 		}
 		message.Value = NewBool(v)
 	case '*':
+		r, _, err := c.Input.ReadRune()
+		if err != nil {
+			return nil, err
+		}
+		// Streaming
+		if r == '?' {
+			return nil, errors.New("Streaming strings are not implemented")
+		}
+
+		if err := c.Input.UnreadRune(); err != nil {
+			return nil, err
+		}
+
 		message.Value, err = c.readArray()
 		if err != nil {
 			return nil, err
