@@ -257,6 +257,30 @@ func (c *Client) Read() (*Message, error) {
 		if err != nil {
 			return nil, err
 		}
+	case 'h':
+		fallthrough
+	case 'H':
+		_, err := c.Input.ReadString(' ')
+		if err != nil {
+			return nil, err
+		}
+
+		line, err := c.readLine()
+		if err != nil {
+			return nil, err
+		}
+
+		parts := strings.Split(line, " ")
+		if len(parts) >= 4 && strings.ToLower(parts[1]) == "auth" {
+			message.User = &User{
+				Name:     parts[2],
+				Password: parts[3],
+			}
+		}
+
+		message.Version = version
+		message.Kind = Hello
+		message.Type = parts[0]
 	case 0:
 		return nil, io.EOF
 	default:
@@ -289,7 +313,12 @@ func (c *Client) Write(message *Message) error {
 	case Default:
 		c.WriteValue(message.Value)
 	case Hello:
-		_, err := c.Output.Write([]byte("HELLO 3\r\n"))
+		if message.User != nil {
+			f := fmt.Sprintf("HELLO 3 AUTH %s %s\r\n", message.User.Name, message.User.Password)
+			_, err := c.Output.Write([]byte(f))
+		} else {
+			_, err := c.Output.Write([]byte("HELLO 3\r\n"))
+		}
 		return err
 	case SetReply:
 		a := message.Value.ToArray()
