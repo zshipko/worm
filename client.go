@@ -312,6 +312,11 @@ func (c *Client) Write(message *Message) error {
 func (c *Client) WriteValue(val *Value) error {
 	var err error
 
+	if val == nil {
+		_, err = c.Output.WriteString("_\r\n")
+		return err
+	}
+
 	switch val.Kind {
 	case Nil:
 		_, err = c.Output.WriteString("_\r\n")

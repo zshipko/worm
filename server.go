@@ -4,15 +4,13 @@ import (
 	"bufio"
 	"crypto/rand"
 	"crypto/tls"
+	"fmt"
 	"net"
+	"reflect"
 	"strings"
-
-	"github.com/akrylysov/pogreb"
 )
 
-type Command interface {
-	Exec(*DB, *Client, []*Value) error
-}
+type Command = func(*Client, []*Value) error
 
 type Server struct {
 	Addr      string
@@ -21,48 +19,7 @@ type Server struct {
 	Commands  map[string]Command
 	tlsConfig *tls.Config
 	s         net.Listener
-	DB        DB
 	Closed    bool
-}
-
-// TODO: make DB an interface
-type DB struct {
-	Store *pogreb.DB
-}
-
-func (db *DB) Put(key string, value *Value) error {
-	v, err := value.EncodeBytes()
-	if err != nil {
-		return err
-	}
-
-	return db.Store.Put([]byte(key), v)
-}
-
-func (db *DB) Get(key string) (*Value, error) {
-	v, err := db.Store.Get([]byte(key))
-	if err != nil {
-		return nil, err
-	}
-
-	if v == nil {
-		return &NilValue, nil
-	}
-
-	vx, err := DecodeBytes(v)
-	if err != nil {
-		return nil, err
-	}
-
-	return vx, nil
-}
-
-func (db *DB) Delete(key string) error {
-	return db.Store.Delete([]byte(key))
-}
-
-func (db *DB) Close() error {
-	return db.Store.Close()
 }
 
 func LoadX509KeyPair(certFile, keyFile string) (*tls.Config, error) {
@@ -78,22 +35,12 @@ func LoadX509KeyPair(certFile, keyFile string) (*tls.Config, error) {
 }
 
 func (s *Server) Close() error {
-	if err := s.DB.Close(); err != nil {
-		return err
-	}
 	return s.s.Close()
 }
 
-func newServerWithMode(mode, addr string, tlsConfig *tls.Config) (*Server, error) {
+func newServerWithMode(ctx interface{}, mode, addr string, tlsConfig *tls.Config) (*Server, error) {
 	var s net.Listener
 	var err error
-
-	db, err := pogreb.Open("./db", &pogreb.Options{
-		BackgroundSyncInterval: -1,
-	})
-	if err != nil {
-		return nil, err
-	}
 
 	if tlsConfig != nil {
 		s, err = tls.Listen(mode, addr, tlsConfig)
@@ -104,18 +51,62 @@ func newServerWithMode(mode, addr string, tlsConfig *tls.Config) (*Server, error
 		return nil, err
 	}
 
+	commands := map[string]Command{}
+
+	typ := reflect.TypeOf(ctx)
+	for i := 0; i < typ.NumMethod(); i++ {
+		method := typ.Method(i)
+		name := strings.ToLower(method.Name)
+
+		if method.Type.NumOut() != 1 {
+			continue
+		}
+
+		if method.Type.Out(0).Name() != "error" {
+			continue
+		}
+
+		if method.Type.NumIn() != 3 {
+			continue
+		}
+
+		if !method.Type.In(1).ConvertibleTo(reflect.TypeOf(&Client{})) {
+			continue
+		}
+
+		if !method.Type.In(2).ConvertibleTo(reflect.TypeOf([]*Value{})) {
+			continue
+		}
+
+		commands[name] = func(client *Client, args []*Value) error {
+			r := method.Func.Call([]reflect.Value{
+				reflect.ValueOf(ctx),
+				reflect.ValueOf(client),
+				reflect.ValueOf(args),
+			})[0].Interface()
+			switch e := r.(type) {
+			case nil:
+				return nil
+			case error:
+				return e
+			default:
+				panic("Invalid return type")
+			}
+		}
+	}
+
 	return &Server{
 		tlsConfig: tlsConfig,
 		Addr:      addr,
 		Mode:      mode,
 		s:         s,
-		Commands:  map[string]Command{},
-		DB:        DB{Store: db},
+		Context:   ctx,
+		Commands:  commands,
 	}, nil
 }
 
-func NewTCPServer(addr string, tlsConfig *tls.Config) (*Server, error) {
-	return newServerWithMode("tcp", addr, tlsConfig)
+func NewTCPServer(ctx interface{}, addr string, tlsConfig *tls.Config) (*Server, error) {
+	return newServerWithMode(ctx, "tcp", addr, tlsConfig)
 }
 
 func (server *Server) Run() error {
@@ -157,11 +148,10 @@ func (s *Server) handleClient(client Client) {
 			continue
 		}
 
-		if err = f.Exec(&s.DB, &client, args); err != nil {
+		if err = f(&client, args); err != nil {
 			client.WriteValue(NewError(err.Error()))
 		}
 
-		s.DB.Store.Sync()
 		client.Output.Flush()
 	}
 }
