@@ -606,10 +606,19 @@ func (c *Client) WriteError(msg string) error {
 
 func (c *Client) Command(args ...string) (*Message, error) {
 	length := len(args)
+	c.WriteArrayHeader(length)
 	for i := 0; i < length; i++ {
 		if err := c.WriteValue(NewString(args[i])); err != nil {
 			return nil, err
 		}
+	}
+
+	return c.Read()
+}
+
+func (c *Client) Exec(args ...*Value) (*Message, error) {
+	if err := c.WriteValue(NewArray(args)); err != nil {
+		return nil, err
 	}
 
 	return c.Read()

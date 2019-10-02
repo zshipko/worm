@@ -43,7 +43,8 @@ func (c *MyCommands) SomethingElse(i int) int {
 In the example above, `MyCommands` exports two `worm` commands named `Example` and `Example2`. `SomethingElse`
 isn't converted to a command because it has incompatible arguments.
 
-A command must start with a `*worm.Client` argument and contain any number of `*worm.Value` arguments, including variadic arguments.
+A command must start with a `*worm.Client` argument and contain any number of `*worm.Value` arguments, including
+variadic arguments.
 
 Once you have written all your commands, you can easily create a new server:
 
