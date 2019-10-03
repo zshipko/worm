@@ -172,7 +172,7 @@ func New(value interface{}) *Value {
 		val := reflect.ValueOf(a)
 
 		if val.Kind() != reflect.Struct {
-			log.Println("Unknown type in call to New", val.Interface())
+			log.Println("Unknown type in call to New %T", val)
 			return &NilValue
 		}
 
