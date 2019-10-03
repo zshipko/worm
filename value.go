@@ -111,7 +111,7 @@ func NewMap(m map[string]*Value) *Value {
 }
 
 func NewNil() *Value {
-	NewValue(Nil, nil)
+	return NewValue(Nil, nil)
 }
 
 func New(value interface{}) *Value {
@@ -172,7 +172,7 @@ func New(value interface{}) *Value {
 		val := reflect.ValueOf(a)
 
 		if val.Kind() != reflect.Struct {
-			log.Println("Unknown type in call to New %T", val)
+			log.Printf("Unknown type in call to New %T\n", val)
 			return &NilValue
 		}
 
