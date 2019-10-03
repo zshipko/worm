@@ -110,7 +110,15 @@ func NewMap(m map[string]*Value) *Value {
 	return NewValue(Map, m)
 }
 
+func NewNil() *Value {
+	NewValue(Nil, nil)
+}
+
 func New(value interface{}) *Value {
+	if value == nil {
+		return NewNil()
+	}
+
 	switch a := value.(type) {
 	case *Value:
 		return a
