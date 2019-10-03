@@ -24,6 +24,7 @@ type Client struct {
 	Input   *bufio.Reader
 	Output  *bufio.Writer
 	User    *User
+	Data    map[string]interface{}
 }
 
 func (c *Client) Close() error {
@@ -625,7 +626,7 @@ func (c *Client) Exec(args ...*Value) (*Message, error) {
 	return c.Read()
 }
 
-func Connect(addr string) (*Client, error) {
+func ConnectVersion(addr string, version string) (*Client, error) {
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
 		return nil, err
@@ -635,9 +636,19 @@ func Connect(addr string) (*Client, error) {
 	w := bufio.NewWriter(conn)
 
 	client := &Client{
-		Input:  r,
-		Output: w,
-		conn:   conn,
+		Input:   r,
+		Output:  w,
+		conn:    conn,
+		Data:    map[string]interface{}{},
+		Version: version,
 	}
 	return client, err
+}
+
+func Connect(addr string) (*Client, error) {
+	return ConnectVersion(addr, "3")
+}
+
+func ConnectV2(addr string) (*Client, error) {
+	return ConnectVersion(addr, "2")
 }

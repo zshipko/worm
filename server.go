@@ -147,6 +147,7 @@ func (server *Server) Run() error {
 			Output:  w,
 			conn:    conn,
 			Version: "2",
+			Data:    map[string]interface{}{},
 		}
 
 		go server.handleClient(client)
