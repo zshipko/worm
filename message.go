@@ -12,11 +12,6 @@ const (
 	Hello
 )
 
-type User struct {
-	Name     string
-	Password string
-}
-
 type Message struct {
 	Kind  MessageKind
 	Type  string

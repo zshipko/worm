@@ -15,6 +15,27 @@ const WormVersion = 1
 
 type Command = func(*Client, []*Value) error
 
+type User struct {
+	Name        string
+	Password    string
+	Permissions []string
+}
+
+func (u *User) Can(perm string) bool {
+	if len(u.Permissions) == 0 || perm == "auth" {
+		return true
+	}
+
+	for _, x := range u.Permissions {
+		x = strings.ToLower(x)
+		if strings.ToLower(perm) == x {
+			return true
+		}
+	}
+
+	return false
+}
+
 type Server struct {
 	Addr      string
 	Mode      string
@@ -23,7 +44,7 @@ type Server struct {
 	tlsConfig *tls.Config
 	s         net.Listener
 	Closed    bool
-	Users     map[string]string
+	Users     map[string]User
 }
 
 func LoadX509KeyPair(certFile, keyFile string) (*tls.Config, error) {
@@ -129,7 +150,7 @@ func newServerWithMode(mode, addr string, tlsConfig *tls.Config, ctx interface{}
 		s:         s,
 		Context:   ctx,
 		Commands:  extractCommands(ctx),
-		Users:     map[string]string{},
+		Users:     map[string]User{},
 	}, nil
 }
 
@@ -168,7 +189,17 @@ func (s *Server) CheckUser(user *User) bool {
 		return false
 	}
 
-	return s.Users[user.Name] == user.Password
+	u, ok := s.Users[user.Name]
+	if !ok {
+		return false
+	}
+
+	if u.Name == user.Name && u.Password == user.Password {
+		user.Permissions = u.Permissions
+		return true
+	}
+
+	return false
 }
 
 func (s *Server) handleHello(client *Client, args []*Value) {
@@ -258,8 +289,20 @@ func (s *Server) handleClient(client Client) {
 		cmd := strings.ToLower(args[0].ToString())
 		args = args[1:]
 
+		if client.User != nil && !client.User.Can(cmd) {
+			client.WriteValue(NewError("invalid permissions"))
+			client.Output.Flush()
+			continue
+		}
+
 		f, ok := s.Commands[cmd]
 		if ok {
+			if !s.CheckUser(client.User) {
+				client.WriteValue(NewError("auth failed"))
+				client.Output.Flush()
+				continue
+			}
+
 			if err = f(&client, args); err != nil {
 				client.WriteValue(NewError(err.Error()))
 			}

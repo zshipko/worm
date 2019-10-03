@@ -73,6 +73,12 @@ func main() {
 		log.Fatalln("Error attempting to start server:", err)
 	}
 
+	/*server.Users["zach"] = worm.User{
+		Name:        "zach",
+		Password:    "testing",
+		Permissions: []string{"get", "set"},
+	}*/
+
 	log.Println("Listening on:", server.Addr)
 
 	if err := server.Run(); err != nil {
