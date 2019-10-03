@@ -3,6 +3,7 @@ package worm
 import (
 	"bytes"
 	"encoding/gob"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -314,4 +315,18 @@ func (v *Value) ToBool() bool {
 
 func (v *Value) IsNil() bool {
 	return v.Is(Nil)
+}
+
+func (v *Value) UnmarshalJSON(b []byte) error {
+	var s interface{}
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+
+	v.Data = New(s)
+	return nil
+}
+
+func (v Value) MarshalJSON() ([]byte, error) {
+	return json.Marshal(v.Data)
 }

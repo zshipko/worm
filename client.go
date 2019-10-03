@@ -15,6 +15,7 @@ import (
 var (
 	ErrInvalidType        = errors.New("invalid type")
 	ErrNotEnoughArguments = errors.New("not enough arguments")
+	ErrInvalidArguments   = errors.New("invalid arguments")
 )
 
 type Client struct {
