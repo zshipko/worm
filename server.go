@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/rand"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"reflect"
@@ -115,6 +116,10 @@ func newServerWithMode(mode, addr string, tlsConfig *tls.Config, ctx interface{}
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	if reflect.ValueOf(ctx).Kind() != reflect.Ptr {
+		return nil, errors.New("Expected pointer in context argument")
 	}
 
 	return &Server{
