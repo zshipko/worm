@@ -9,6 +9,7 @@ import (
 	"net"
 	"reflect"
 	"strings"
+	"sync"
 )
 
 const WormVersion = 1
@@ -22,13 +23,13 @@ type User struct {
 }
 
 func (u *User) Can(perm string) bool {
-	if len(u.Permissions) == 0 || perm == "auth" {
+	if len(u.Permissions) == 0 {
 		return true
 	}
 
 	for _, x := range u.Permissions {
 		x = strings.ToLower(x)
-		if strings.ToLower(perm) == x {
+		if perm == x {
 			return true
 		}
 	}
@@ -37,14 +38,15 @@ func (u *User) Can(perm string) bool {
 }
 
 type Server struct {
-	Addr      string
-	Mode      string
-	Context   interface{}
-	Commands  map[string]Command
-	tlsConfig *tls.Config
-	s         net.Listener
-	Closed    bool
-	Users     map[string]User
+	Addr        string
+	Mode        string
+	Context     interface{}
+	Commands    map[string]Command
+	tlsConfig   *tls.Config
+	s           net.Listener
+	Closed      bool
+	Users       map[string]User
+	contextLock sync.Mutex
 }
 
 func LoadX509KeyPair(certFile, keyFile string) (*tls.Config, error) {
@@ -63,7 +65,7 @@ func (s *Server) Close() error {
 	return s.s.Close()
 }
 
-func extractCommands(ctx interface{}) map[string]Command {
+func extractCommands(ctx interface{}, lock *sync.Mutex) map[string]Command {
 	commands := map[string]Command{}
 
 	typ := reflect.TypeOf(ctx)
@@ -101,6 +103,10 @@ func extractCommands(ctx interface{}) map[string]Command {
 				if !variadic && len(args) != method.Type.NumIn()-2 {
 					return client.WriteError(fmt.Sprintf("invalid argument count, expected %d but got %d", method.Type.NumIn()-2, len(args)))
 				}
+
+				lock.Lock()
+				defer lock.Unlock()
+
 				vargs := []reflect.Value{val}
 				vargs = append(vargs, reflect.ValueOf(client))
 				for _, arg := range args {
@@ -143,15 +149,18 @@ func newServerWithMode(mode, addr string, tlsConfig *tls.Config, ctx interface{}
 		return nil, errors.New("Expected pointer in context argument")
 	}
 
-	return &Server{
+	server := &Server{
 		tlsConfig: tlsConfig,
 		Addr:      addr,
 		Mode:      mode,
 		s:         s,
 		Context:   ctx,
-		Commands:  extractCommands(ctx),
 		Users:     map[string]User{},
-	}, nil
+	}
+
+	server.Commands = extractCommands(ctx, &server.contextLock)
+
+	return server, nil
 }
 
 func NewTCPServer(addr string, tlsConfig *tls.Config, ctx interface{}) (*Server, error) {
@@ -165,18 +174,7 @@ func (server *Server) Run() error {
 			return err
 		}
 
-		r := bufio.NewReader(conn)
-		w := bufio.NewWriter(conn)
-
-		client := Client{
-			Input:   r,
-			Output:  w,
-			conn:    conn,
-			Version: "2",
-			Data:    map[string]interface{}{},
-		}
-
-		go server.handleClient(client)
+		go server.handleClient(conn)
 	}
 }
 
@@ -272,7 +270,17 @@ func (s *Server) listCommands(client *Client) {
 	client.WriteValue(New(arr))
 }
 
-func (s *Server) handleClient(client Client) {
+func (s *Server) handleClient(conn net.Conn) {
+	r := bufio.NewReader(conn)
+	w := bufio.NewWriter(conn)
+
+	client := &Client{
+		Input:   r,
+		Output:  w,
+		conn:    conn,
+		Version: "2",
+		Data:    map[string]interface{}{},
+	}
 	defer client.Close()
 
 	for {
@@ -303,16 +311,16 @@ func (s *Server) handleClient(client Client) {
 				continue
 			}
 
-			if err = f(&client, args); err != nil {
+			if err = f(client, args); err != nil {
 				client.WriteValue(NewError(err.Error()))
 			}
 		} else {
 			if cmd == "hello" {
-				s.handleHello(&client, args)
+				s.handleHello(client, args)
 			} else if cmd == "auth" {
-				s.handleAuth(&client, args)
+				s.handleAuth(client, args)
 			} else if cmd == "command" {
-				s.listCommands(&client)
+				s.listCommands(client)
 			} else if cmd == "ping" {
 				if len(args) > 0 {
 					client.WriteValue(args[0])
