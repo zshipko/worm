@@ -312,6 +312,7 @@ func (s *Server) handleClient(conn net.Conn) {
 			}
 
 			if err = f(client, args); err != nil {
+				client.Output.Reset(w)
 				client.WriteValue(NewError(err.Error()))
 			}
 		} else {
