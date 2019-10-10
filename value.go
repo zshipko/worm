@@ -319,7 +319,7 @@ func (v *Value) ToFloat32() float32 {
 	} else if v.Is(String) {
 		n, err := strconv.ParseFloat(v.Data.(string), 32)
 		if err == nil {
-			return n
+			return float32(n)
 		}
 	}
 
