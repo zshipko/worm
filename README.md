@@ -1,6 +1,6 @@
 # worm
 
-A RESP3 server framework for Go
+A reflection-based RESP3 server framework for Go
 
 ## Protocol
 
