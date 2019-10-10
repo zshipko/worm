@@ -298,7 +298,7 @@ func (v *Value) ToInt() int {
 
 func (v *Value) ToFloat64() float64 {
 	if v.Is(Float64) {
-		return v.Data.(float64)
+		return floatv.Data.(float64)
 	} else if v.Is(Int64) {
 		return float64(v.Data.(int64))
 	} else if v.Is(String) {
@@ -309,6 +309,21 @@ func (v *Value) ToFloat64() float64 {
 	}
 
 	return float64(0)
+}
+
+func (v *Value) ToFloat32() float32 {
+	if v.Is(Float64) {
+		return float32(v.Data.(float64))
+	} else if v.Is(Int64) {
+		return float32(v.Data.(int64))
+	} else if v.Is(String) {
+		n, err := strconv.ParseFloat(v.Data.(string), 32)
+		if err == nil {
+			return n
+		}
+	}
+
+	return float32(0)
 }
 
 func (v *Value) ToBool() bool {
