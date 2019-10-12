@@ -15,8 +15,6 @@ A reflection-based RESP3 server framework for Go
 
 ```go
 type MyCommands struct {
-  db: map[string]*Value,
-  lock: sync.Mutex,
 }
 
 func (c *MyCommands) Example(client *worm.Client, args ...*worm.Value) error {
@@ -43,8 +41,11 @@ func (c *MyCommands) SomethingElse(i int) int {
 In the example above, `MyCommands` exports two `worm` commands named `Example` and `Example2`. `SomethingElse`
 isn't converted to a command because it has incompatible arguments.
 
-A command must start with a `*worm.Client` argument and contain any number of `*worm.Value` arguments, including
-variadic arguments.
+In order to write a valid command, it must:
+
+1. Start with a `*worm.Client` argument
+2. Contain any number of `*worm.Value` arguments, including variadic arguments
+3. Return an `error` value
 
 Once you have written all your commands, you can easily create a new server:
 
@@ -58,3 +59,13 @@ And run it:
 ```go
 server.Run()
 ```
+
+Then, using `redis-cli`, you can query it:
+
+```shell
+$ redis-cli -p 8081
+127.0.0.1:8081> example testing 1234
+1) testing
+2) 1234
+```
+
