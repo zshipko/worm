@@ -542,7 +542,7 @@ func (c *Client) WriteValue(val *Value) error {
 		}
 	case Bytes:
 		s := val.ToBytes()
-		_, err = c.Output.WriteString(fmt.Sprint("=", len(s), "\r\nraw:"))
+		err = c.WriteBytesHeader(len(s), "raw")
 		if err != nil {
 			return err
 		}
@@ -590,6 +590,15 @@ func (c *Client) WriteValue(val *Value) error {
 
 func (c *Client) WriteStringHeader(n int) error {
 	_, err := c.Output.WriteString(fmt.Sprint("$", n, "\r\n"))
+	return err
+}
+
+func (c *Client) WriteBytesHeader(n int, tag string) error {
+	if len(tag) != 3 {
+		return errors.New("Invalid verbatim string tag")
+	}
+
+	_, err := c.Output.WriteString(fmt.Sprint("=", n, "\r\n", tag, ":"))
 	return err
 }
 
