@@ -132,6 +132,23 @@ func fixReturnValue(r interface{}) error {
 	}
 }
 
+func NewServer(s net.Listener, ctx interface{}) (*Server, error) {
+	if reflect.ValueOf(ctx).Kind() != reflect.Ptr {
+		return nil, errors.New("Expected pointer in context argument")
+	}
+
+	server := &Server{
+		Addr:    s.Addr().String(),
+		s:       s,
+		Context: ctx,
+		Users:   map[string]User{},
+	}
+
+	server.Commands = extractCommands(ctx, &server.contextLock)
+
+	return server, nil
+}
+
 func newServerWithMode(mode, addr string, tlsConfig *tls.Config, ctx interface{}) (*Server, error) {
 	var s net.Listener
 	var err error
@@ -145,22 +162,7 @@ func newServerWithMode(mode, addr string, tlsConfig *tls.Config, ctx interface{}
 		return nil, err
 	}
 
-	if reflect.ValueOf(ctx).Kind() != reflect.Ptr {
-		return nil, errors.New("Expected pointer in context argument")
-	}
-
-	server := &Server{
-		tlsConfig: tlsConfig,
-		Addr:      addr,
-		Mode:      mode,
-		s:         s,
-		Context:   ctx,
-		Users:     map[string]User{},
-	}
-
-	server.Commands = extractCommands(ctx, &server.contextLock)
-
-	return server, nil
+	return NewServer(s, ctx)
 }
 
 func NewTCPServer(addr string, tlsConfig *tls.Config, ctx interface{}) (*Server, error) {
