@@ -641,6 +641,14 @@ func ConnectVersion(addr string, version string) (*Client, error) {
 		return nil, err
 	}
 
+	return NewClientVersion(conn, version), nil
+}
+
+func NewClient(conn net.Conn) *Client {
+	return NewClientVersion(conn, "3")
+}
+
+func NewClientVersion(conn net.Conn, version string) *Client {
 	r := bufio.NewReader(conn)
 	w := bufio.NewWriter(conn)
 
@@ -651,7 +659,7 @@ func ConnectVersion(addr string, version string) (*Client, error) {
 		Data:    map[string]interface{}{},
 		Version: version,
 	}
-	return client, err
+	return client
 }
 
 func Connect(addr string) (*Client, error) {
